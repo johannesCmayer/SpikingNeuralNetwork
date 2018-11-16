@@ -1,9 +1,16 @@
 import numpy as np
 import logging as log
 import random as rand
+import math
+import copy
 
 dlog = log.getLogger('default')
 dlog.setLevel(log.INFO)
+
+
+def mse(x, y):
+    return np.sum(np.sqrt(np.asarray(y) - np.asarray(x)))
+
 
 class NeuronState:
     ReadyForStimulus = 'READY_FOR_STIMULUS'
@@ -21,6 +28,7 @@ class SpikingNeuron:
         self.frames_to_repolarize = frames_to_repolarise
 
         self.id = f'{SpikingNeuron.num_of_sn}_{name}'
+        self.name = name
         SpikingNeuron.num_of_sn += 1
 
         self.value = 0
@@ -86,16 +94,16 @@ class SpikingNeuronNetwork:
         self.input_neurons = []
         self.output_neurons = []
         for _ in range(numer_of_neurons):
-            self.hidden_neurons.append(SpikingNeuron())
+            self.hidden_neurons.append(SpikingNeuron('hidden'))
         for _ in range(int(numer_of_neurons * average_connection_per_neuron)):
             self.add_random_connection(self.hidden_neurons)
 
         for _ in range(num_input_neurons):
-            neuron = SpikingNeuron()
+            neuron = SpikingNeuron('input')
             neuron.add_axon_to(self.get_random_neuron(self.hidden_neurons))
             self.input_neurons.append(neuron)
         for _ in range(num_output_neurons):
-            neuron = SpikingNeuron()
+            neuron = SpikingNeuron('output')
             neuron.add_dendride_to(self.get_random_neuron(self.hidden_neurons))
             self.output_neurons.append(neuron)
 
@@ -116,14 +124,26 @@ class SpikingNeuronNetwork:
         self.hidden_neurons[idx_source].add_axon_to(self.hidden_neurons[idx_target])
 
     def mutate(self, connections=(-1, 1), weight_adjust=(-0.1, 0.1), neurons=(-1, 1)):
-        pass
+        self.add_random_connection(self.hidden_neurons, self.output_neurons)
+        self.add_random_connection(self.hidden_neurons)
+
+    def loss(self, x, y, loss_func=mse):
+        out = self.run(x)
+        return loss_func(out, y)
 
     def clean_up_network(self):
         self.hidden_neurons[:] = [x for x in self.hidden_neurons if len(x._axon_connection_neurons) > 0]
 
     def update(self):
-        for n in self.hidden_neurons:
+        for n in [*self.input_neurons, *self.hidden_neurons, *self.output_neurons]:
             n.update()
+
+    def run(self, inputs, frames=10):
+        for _ in range(frames):
+            self.push_input(inputs)
+            self.update()
+        output = self.get_output()
+        return output
 
     def get_output(self):
         return [x.value for x in self.output_neurons]
@@ -136,16 +156,30 @@ class SpikingNeuronNetwork:
             neuron.current_charge += inp
 
 
+class Trainer:
+    def __init__(self, network):
+        self.network = network
+
+    def train(self, x, y, epochs):
+        for _ in range(epochs):
+            evo_network = copy.deepcopy(self.network)
+            prev_loss = evo_network.loss(x, y)
+            evo_network.mutate()
+            post_loss = evo_network.loss(x, y)
+            if post_loss < prev_loss:
+                self.network = evo_network
+                print('network_improved')
+            elif post_loss == prev_loss:
+                pass
+                print('-')
+            else:
+                print('network has worsend')
+
+
 def run():
     network = SpikingNeuronNetwork(100, 5, 10, 10)
-    ri = lambda: rand.randint(0,10)
-
-    while True:
-        inputs = [ri() for _ in range(10)]
-        network.push_input(inputs)
-        network.update()
-        print(f'inputs {inputs}')
-        print(network.get_output())
+    trainer = Trainer(network)
+    trainer.train(np.ones(10), np.ones(10), 100)
 
 
 if __name__ == '__main__':
